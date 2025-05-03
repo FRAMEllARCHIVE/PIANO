@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Responsive Piano Keyboard</title>
+  <style>
+    :root {
+      --key-height: 333px;
+      --white-key-aspect: 4;
+      --black-key-height-ratio: 0.6;
+      --black-key-width-ratio: 0.6;
+      --keyboard-padding: 1vw;
+    }
+
+    body {
+      margin: 0;
+      background: #111;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      font-family: sans-serif;
+      box-sizing: border-box;
+    }
+
+    .keyboard {
+      position: relative;
+      display: flex;
+      background: #333;
+      padding: var(--keyboard-padding);
+      border-radius: 10px;
+      box-shadow: 0 5px 25px rgba(0, 0, 0, 0.6);
+      width: 100%;
+      max-width: 10000px;
+      border: 3px solid #222;
+    }
+
+    .key {
+      height: var(--key-height);
+      border: 1px solid #555;
+      box-sizing: border-box;
+      border-radius: 0 0 5px 5px;
+      cursor: pointer;
+      transition: background-color 0.1s ease;
+      box-shadow: inset 0 -2px 3px rgba(0, 0, 0, 0.2);
+    }
+
+    .white-key {
+      background: linear-gradient(to bottom, #fff 95%, #eee 100%);
+      position: relative;
+      z-index: 1;
+      flex-grow: 1;
+      border-left: none;
+    }
+
+    .white-key:first-of-type {
+      border-left: 1px solid #555;
+    }
+
+    .white-key.active {
+      background: linear-gradient(to bottom, #ddd 95%, #ccc 100%);
+      box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+
+    .black-key {
+      width: var(--black-key-width);
+      height: calc(var(--key-height) * var(--black-key-height-ratio));
+      background: linear-gradient(to bottom, #333 0%, #111 100%);
+      position: absolute;
+      top: var(--keyboard-padding);
+      z-index: 2;
+      border-radius: 0 0 4px 4px;
+      box-shadow: inset 0 -2px 2px rgba(255, 255, 255, 0.1), 0 2px 4px rgba(0, 0, 0, 0.7);
+    }
+
+    .black-key.active {
+      background: linear-gradient(to bottom, #555 0%, #333 100%);
+      box-shadow: inset 0 -1px 1px rgba(255, 255, 255, 0.1), 0 1px 2px rgba(0, 0, 0, 0.5);
+    }
+  </style>
+</head>
+<body>
+  <div class="keyboard" id="keyboard"></div>
+
+<div style="position: absolute; top: 20px; left: 20px; color: white; font-size: 16px;">
+  <label for="sustain">Sustain:</label>
+  <input type="range" id="sustain" min="0" max="2" step="0.05" value="0.4" />
+  <span id="sustain-value">0.4s</span>
+</div>
+
+  <script>
+
+let sustain = 0.4;
+
+const sustainSlider = document.getElementById('sustain');
+const sustainDisplay = document.getElementById('sustain-value');
+
+sustainSlider.addEventListener('input', () => {
+  sustain = parseFloat(sustainSlider.value);
+  sustainDisplay.textContent = `${sustain.toFixed(2)}s`;
+});
+
+    const keyboard = document.getElementById('keyboard');
+    const config = {
+      startNote: 'C3',
+      endNote: 'B4',
+      keyMap: {
+        'KeyA': 'C4', 'KeyS': 'D4', 'KeyD': 'E4', 'KeyF': 'F4',
+        'KeyG': 'G4', 'KeyH': 'A4', 'KeyJ': 'B4',
+        'KeyK': 'C5', 'KeyL': 'D5', 'Semicolon': 'E5',
+        'KeyW': 'C#4', 'KeyE': 'D#4', 'KeyT': 'F#4',
+        'KeyY': 'G#4', 'KeyU': 'A#4', 'KeyO': 'C#5', 'KeyP': 'D#5'
+      }
+    };
+
+    const noteDetails = {
+      'C': { type: 'white' }, 'C#': { type: 'black' },
+      'D': { type: 'white' }, 'D#': { type: 'black' },
+      'E': { type: 'white' }, 'F': { type: 'white' },
+      'F#': { type: 'black' }, 'G': { type: 'white' },
+      'G#': { type: 'black' }, 'A': { type: 'white' },
+      'A#': { type: 'black' }, 'B': { type: 'white' }
+    };
+
+    const noteOrder = Object.keys(noteDetails);
+    let audioCtx;
+    const activeOscillators = new Map();
+    const pressedKeys = new Set();
+
+    const generateNotesInRange = (startNote, endNote) => {
+      const notes = [];
+      let index = noteToIndex(startNote);
+      const end = noteToIndex(endNote);
+      while (index <= end) notes.push(indexToNote(index++));
+      return notes;
+    };
+
+    const noteToIndex = (note) => {
+      const key = note.slice(0, -1);
+      const octave = parseInt(note.slice(-1));
+      const keyIndex = noteOrder.indexOf(key);
+      return octave * 12 + keyIndex;
+    };
+
+    const indexToNote = (index) => {
+      const octave = Math.floor(index / 12);
+      const key = noteOrder[index % 12];
+      return key + octave;
+    };
+
+    const createKeys = (notes) => {
+      keyboard.innerHTML = '';
+      const whiteKeys = notes.filter(n => noteDetails[n.slice(0, -1)].type === 'white');
+      const whiteKeyCount = whiteKeys.length;
+      const whiteKeyWidth = 100 / whiteKeyCount;
+      const blackKeyWidth = whiteKeyWidth * 0.6;
+      keyboard.style.setProperty('--black-key-width', `${blackKeyWidth}%`);
+
+      let whiteKeyIndex = 0;
+      notes.forEach(note => {
+        const keyType = noteDetails[note.slice(0, -1)].type;
+        const key = document.createElement('div');
+        key.className = `key ${keyType}-key`;
+        key.dataset.note = note;
+
+        if (keyType === 'white') {
+          key.style.width = `${whiteKeyWidth}%`;
+          keyboard.appendChild(key);
+          whiteKeyIndex++;
+        } else {
+          const left = (whiteKeyIndex * whiteKeyWidth) - (blackKeyWidth / 2);
+          key.style.left = `${left}%`;
+          keyboard.appendChild(key);
+        }
+      });
+
+      setupKeyListeners();
+    };
+
+    const getFrequency = (note) => {
+      const A4 = 440;
+      const A4_INDEX = noteToIndex('A4');
+      const index = noteToIndex(note);
+      return A4 * Math.pow(2, (index - A4_INDEX) / 12);
+    };
+
+    const playNote = (note) => {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      if (activeOscillators.has(note)) return;
+
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(getFrequency(note), audioCtx.currentTime);
+
+      const now = audioCtx.currentTime;
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(1, now + 0.02);
+      gain.gain.linearRampToValueAtTime(0.5, now + 0.17);
+
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(now);
+
+activeOscillators.set(note, { osc, gain, releaseTime: sustain });
+
+      const key = keyboard.querySelector(`.key[data-note="${note}"]`);
+      if (key) key.classList.add('active');
+    };
+
+    const stopNote = (note) => {
+      if (!activeOscillators.has(note) || !audioCtx) return;
+
+      const { osc, gain, releaseTime } = activeOscillators.get(note);
+      const now = audioCtx.currentTime;
+
+      gain.gain.cancelScheduledValues(now);
+      gain.gain.setValueAtTime(gain.gain.value, now);
+      gain.gain.linearRampToValueAtTime(0.0001, now + releaseTime);
+
+      osc.stop(now + releaseTime + 0.05);
+      activeOscillators.delete(note);
+
+      const key = keyboard.querySelector(`.key[data-note="${note}"]`);
+      if (key) key.classList.remove('active');
+    };
+
+    const setupKeyListeners = () => {
+      keyboard.querySelectorAll('.key').forEach(key => {
+        const note = key.dataset.note;
+
+        key.addEventListener('mousedown', () => playNote(note));
+        key.addEventListener('mouseup', () => stopNote(note));
+        key.addEventListener('mouseleave', () => {
+          if (activeOscillators.has(note)) stopNote(note);
+        });
+
+        key.addEventListener('touchstart', (e) => {
+          e.preventDefault();
+          playNote(note);
+        }, { passive: false });
+
+        key.addEventListener('touchend', () => stopNote(note));
+        key.addEventListener('touchcancel', () => stopNote(note));
+      });
+    };
+
+    const setupKeyboardListeners = () => {
+      window.addEventListener('keydown', (e) => {
+        if (e.repeat || pressedKeys.has(e.code)) return;
+        const note = config.keyMap[e.code];
+        if (note) {
+          pressedKeys.add(e.code);
+          playNote(note);
+        }
+      });
+
+      window.addEventListener('keyup', (e) => {
+        const note = config.keyMap[e.code];
+        if (note) {
+          pressedKeys.delete(e.code);
+          stopNote(note);
+        }
+      });
+    };
+
+    const init = () => {
+      const notes = generateNotesInRange(config.startNote, config.endNote);
+      createKeys(notes);
+      setupKeyboardListeners();
+    };
+
+    window.addEventListener('load', init);
+  </script>
+</body>
+</html>
